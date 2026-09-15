@@ -1,0 +1,3 @@
+name: agda-guardrails
+include: .
+depend: standard-library

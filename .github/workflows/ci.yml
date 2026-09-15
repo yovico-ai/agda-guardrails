@@ -1,0 +1,27 @@
+name: check
+
+# Deliberately main-only. The `broken` branch is the repo's own first
+# demonstration — its property test is SUPPOSED to fail there — and a red
+# check on it would read as "this repo's CI is broken" to anyone skimming
+# past. See README for how to see that failure locally instead.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
+
+      - name: make check (typecheck spec, compile oracle, build + test Go)
+        run: nix develop --command make check
