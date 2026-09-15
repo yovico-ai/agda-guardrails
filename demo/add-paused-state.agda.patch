@@ -1,0 +1,9 @@
+diff --git a/spec/Membership.agda b/spec/Membership.agda
+index e81a316..5176a9f 100644
+--- a/spec/Membership.agda
++++ b/spec/Membership.agda
+@@ -14,3 +14,4 @@ data MembershipState : Set where
+   cancelledPendingPeriodEnd : MembershipState
+   gracePeriod               : MembershipState
+   expired                   : MembershipState
++  paused                    : MembershipState

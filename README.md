@@ -52,10 +52,14 @@ ok      github.com/yovico-ai/agda-guardrails/impl
 
 ORACLE_BIN=.../build/Main go test ./harness/... -v
 === RUN   TestConformsToSpec
-    conformance_property_test.go:61: AccessActive("cancelled_pending_period_end") = false, spec says true
---- FAIL: TestConformsToSpec (0.00s)
+    conformance_property_test.go:56: [rapid] failed after 0 tests: BillingActive("cancelled_pending_period_end") = true, spec says false
+--- FAIL: TestConformsToSpec (0.01s)
 FAIL
 ```
+
+(rapid generates randomly, so you may instead see it fail on
+`grace_period` — the other state the two policies disagree on. Either
+way, `BillingActive` is the one that's wrong.)
 
 `impl/membership_test.go`'s unit tests are green. They were never wrong —
 they cover the two states anyone would think to test (`active`,
@@ -105,10 +109,9 @@ make check
 ```
 
 ```
-Checking AccessPolicy (.../spec/AccessPolicy.agda).
-error: Incomplete pattern matching for AccessActive.
-Missing cases:
-    AccessActive paused
+.../spec/AccessPolicy.agda:13.1-16.21: error: [CoverageIssue]
+Incomplete pattern matching for AccessActive. Missing cases:
+  AccessActive paused
 ```
 
 Revert it (`git checkout spec/Membership.agda`) and apply the Go

@@ -1,2 +1,7 @@
 /build/
 /spec/_build/
+
+# rapid writes a replay file here on every property-test failure — real
+# fixtures worth keeping are the exception, not the rule, and the whole
+# `broken` branch is one long expected failure.
+/harness/testdata/

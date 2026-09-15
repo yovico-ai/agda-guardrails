@@ -9,6 +9,7 @@ package harness
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -33,6 +34,7 @@ type Client struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout *bufio.Scanner
+	stderr *bytes.Buffer
 	closed bool
 }
 
@@ -58,12 +60,18 @@ func Start(path string) (*Client, error) {
 		_ = stdin.Close()
 		return nil, fmt.Errorf("oracle stdout pipe: %w", err)
 	}
+	// Captured, not inherited: a crash at startup (the LD_LIBRARY_PATH case
+	// the comment above describes) otherwise surfaces to a caller as a bare
+	// "write: broken pipe" or "closed its output", with the actual reason
+	// only visible if you happen to already be watching this process's fd 2.
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		_ = stdin.Close()
 		return nil, fmt.Errorf("start oracle: %w", err)
 	}
 	scanner := bufio.NewScanner(stdout)
-	return &Client{cmd: cmd, stdin: stdin, stdout: scanner}, nil
+	return &Client{cmd: cmd, stdin: stdin, stdout: scanner, stderr: &stderr}, nil
 }
 
 // withoutLDLibraryPath drops LD_LIBRARY_PATH from an environment list
@@ -102,15 +110,25 @@ func (c *Client) Query(state string) (OracleResponse, error) {
 		return OracleResponse{}, fmt.Errorf("oracle client is closed")
 	}
 	if _, err := fmt.Fprintln(c.stdin, state); err != nil {
-		return OracleResponse{}, fmt.Errorf("write to oracle: %w", err)
+		return OracleResponse{}, fmt.Errorf("write to oracle: %w%s", err, c.stderrSuffix())
 	}
 	if !c.stdout.Scan() {
 		if err := c.stdout.Err(); err != nil {
-			return OracleResponse{}, fmt.Errorf("read from oracle: %w", err)
+			return OracleResponse{}, fmt.Errorf("read from oracle: %w%s", err, c.stderrSuffix())
 		}
-		return OracleResponse{}, fmt.Errorf("oracle closed its output")
+		return OracleResponse{}, fmt.Errorf("oracle closed its output%s", c.stderrSuffix())
 	}
 	return parseResponse(c.stdout.Text())
+}
+
+// stderrSuffix appends whatever the oracle process wrote to stderr, if
+// anything, so a startup crash names its own cause instead of just its
+// symptom on the pipe.
+func (c *Client) stderrSuffix() string {
+	if c.stderr == nil || c.stderr.Len() == 0 {
+		return ""
+	}
+	return fmt.Sprintf(" (oracle stderr: %s)", strings.TrimSpace(c.stderr.String()))
 }
 
 // parseResponse hand-parses spec/Oracle.agda's hand-built JSON line. A
