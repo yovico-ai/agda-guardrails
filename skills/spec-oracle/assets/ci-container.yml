@@ -1,0 +1,17 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # Agda 2.8, agda-stdlib 2.3, GHC and Go, built from the reference
+    # repo's nix flake. No Nix in this repository; `make check` runs as-is.
+    container: ghcr.io/yovico-ai/agda-guardrails:latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make check

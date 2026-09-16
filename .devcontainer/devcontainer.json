@@ -1,0 +1,13 @@
+{
+  "name": "agda-guardrails",
+  "image": "ghcr.io/yovico-ai/agda-guardrails:latest",
+  "workspaceFolder": "/work",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/work,type=bind,consistency=cached",
+  "remoteUser": "vscode",
+  "postCreateCommand": "make oracle",
+  "customizations": {
+    "vscode": {
+      "extensions": ["banacorn.agda-mode", "golang.go"]
+    }
+  }
+}

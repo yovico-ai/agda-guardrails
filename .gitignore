@@ -1,5 +1,7 @@
 /build/
 /spec/_build/
+# nix build's output symlink (the container image tarball)
+/result
 
 # rapid writes a replay file here on every property-test failure — real
 # fixtures worth keeping are the exception, not the rule, and the whole

@@ -46,6 +46,8 @@ nix develop
 make check
 ```
 
+(No Nix? The Docker equivalent is under [Requirements](#requirements).)
+
 You're on `broken`, this repo's default branch. `make check` type-checks
 the spec, compiles it to a binary, builds the Go implementation, and runs
 both test layers. Expect this:
@@ -193,6 +195,10 @@ Numbers from this repo, so the size of the demo is on the table:
   modules at `-O0`); the Go side runs in milliseconds. In GitHub Actions
   on `ubuntu-latest` with `magic-nix-cache`, the `make check` step is
   45 s.
+- The no-Nix image is 4.5 GB on disk, 1.15 GB compressed to pull — GHC
+  is most of that. CI builds it in a separate job that runs only after
+  `make check` is green on `main`, and proves it by running the same
+  `make check` inside it before pushing.
 
 ## Use it in your own project
 
@@ -226,11 +232,13 @@ is where the requirements get debugged. It then builds the layers in this
 repo's order and refuses to call itself done until it has watched the
 property test fail on a planted bug and Agda refuse a fifth state.
 
-Two honest limits. The skill can't install Agda: the bundled flake does,
-but Nix is still the entry fee. And an agent can draft the spec from your
-requirements, but if nobody reviews it, the same model wrote both the
-oracle and the code — so the skill says this out loud and stops for
-review at the truth table.
+Two honest limits. The skill can't install Agda: it ships the flake for
+Nix users and, for everyone else, a CI template that runs inside
+`ghcr.io/yovico-ai/agda-guardrails` — but one of Nix or Docker is still
+the entry fee. And an agent can draft the spec from your requirements,
+but if nobody reviews it, the same model wrote both the oracle and the
+code — so the skill says this out loud and stops for review at the truth
+table.
 
 The example under `skills/spec-oracle/assets/example/` is a copy of this
 repo's own files; `make check` fails if they ever drift from what CI just
@@ -253,8 +261,34 @@ larger project.
 
 ## Requirements
 
-Nix with flakes enabled. `nix develop` provisions Agda 2.8 + the standard
-library, GHC (Agda's compile backend), and Go — nothing else to install.
+Two doors to the same toolchain; pick one.
+
+**Nix** — the one to use if you'll edit any Agda. `nix develop`
+provisions Agda 2.8 + the standard library, GHC (Agda's compile backend),
+and Go; nothing else to install. Linux and Apple-silicon macOS (nixpkgs
+unstable no longer supports Intel macOS). If you don't have Nix, the
+[Determinate installer](https://github.com/DeterminateSystems/nix-installer)
+is one command and enables flakes by default:
+
+```sh
+curl -fsSL https://install.determinate.systems/nix | sh -s -- install
+```
+
+**Docker** — no Nix anywhere. `ghcr.io/yovico-ai/agda-guardrails` carries
+the same Agda, stdlib, GHC and Go, and is built *from this repo's flake*
+by CI, so it can't drift from what `nix develop` gives you:
+
+```sh
+git clone https://github.com/yovico-ai/agda-guardrails
+cd agda-guardrails
+docker run --rm -v "$PWD:/work" ghcr.io/yovico-ai/agda-guardrails make check
+```
+
+Same output as the Quickstart. The same image is behind `.devcontainer/`
+and works as a GitHub Actions `container:` (see
+`skills/spec-oracle/assets/ci-container.yml`). It is `linux/amd64` only;
+on Apple silicon Docker runs it under emulation — slower, fine for a
+`make check`, not for an edit loop.
 
 **If `nix develop` itself crashes** with
 `undefined symbol: __nptl_change_stack_perm`, an `LD_LIBRARY_PATH` your

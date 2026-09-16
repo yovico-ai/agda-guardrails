@@ -2,7 +2,7 @@
 name: spec-oracle
 description: Builds a total Agda specification of a project's business rules or state machine and wires it, compiled to a native binary, as the live conformance oracle for a property-test suite in the implementation language (Go shown; any language with a property-testing library works). Use when a project has rules code must conform to — especially rules written down in a REQUIREMENTS.md, SPEC.md or PRD — and when adding, changing or reviewing such rules. Also use when asked for "spec as oracle", "executable specification", "formal spec for tests", "Agda spec" or "conformance testing".
 license: MIT
-compatibility: Requires Nix with flakes enabled (the bundled flake provisions Agda 2.8, agda-stdlib 2.3, GHC and Go), or an equivalent local Agda + GHC install.
+compatibility: Requires either Nix with flakes enabled (the bundled flake provisions Agda 2.8, agda-stdlib 2.3, GHC and Go) or Docker, using the image ghcr.io/yovico-ai/agda-guardrails built from that same flake.
 metadata:
   author: yovico-ai
   version: "0.1"
@@ -60,6 +60,7 @@ harness/
   conformance_test.*   vocabulary handshake, then the property
 impl/                  the code under test — knows nothing about spec/
 flake.nix  Makefile  .github/workflows/ci.yml   from assets/
+                       (ci-container.yml is the CI variant with no Nix)
 ```
 
 The worked example under `assets/example/` is a verbatim copy of a tested
@@ -151,6 +152,19 @@ library's replay directory (`/harness/testdata/` for rapid).
 
 `nix develop` then `make check` runs everything. `make typecheck` alone is
 the fast loop while writing Agda.
+
+**Without Nix.** The image `ghcr.io/yovico-ai/agda-guardrails` carries the
+same Agda, stdlib, GHC and Go — it is built from the same flake, so the
+two cannot disagree about versions. Locally:
+
+```sh
+docker run --rm -v "$PWD:/work" ghcr.io/yovico-ai/agda-guardrails make check
+```
+
+and in CI use `assets/ci-container.yml` in place of `assets/ci.yml`; it
+runs the job inside that image. The flake remains the better choice for
+anyone editing Agda day to day (native speed, no bind-mount); the image is
+for running, for CI, and for machines where Nix is not an option.
 
 ### 6. Harness client (implementation language)
 
