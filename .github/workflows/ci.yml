@@ -53,9 +53,17 @@ jobs:
       - name: Prove it — make check inside the image, no Nix
         run: docker run --rm -v "$PWD:/work" -w /work ghcr.io/yovico-ai/agda-guardrails:latest make check
 
+      # skopeo pushes straight from the archive nix built. Going through
+      # `docker load` + `docker push` instead ends in GHCR rejecting the
+      # manifest with "unknown blob" after every layer has uploaded.
+      # --inputs-from . pins skopeo to the same nixpkgs as the flake.
       - name: Push to GHCR
+        env:
+          DEST_CREDS: ${{ github.actor }}:${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          docker tag ghcr.io/yovico-ai/agda-guardrails:latest "ghcr.io/yovico-ai/agda-guardrails:${GITHUB_SHA::7}"
-          docker push ghcr.io/yovico-ai/agda-guardrails:latest
-          docker push "ghcr.io/yovico-ai/agda-guardrails:${GITHUB_SHA::7}"
+          gunzip -c result > /tmp/image.tar
+          for tag in latest "${GITHUB_SHA::7}"; do
+            nix shell --inputs-from . nixpkgs#skopeo -c \
+              skopeo copy --dest-creds "$DEST_CREDS" \
+                docker-archive:/tmp/image.tar "docker://ghcr.io/yovico-ai/agda-guardrails:$tag"
+          done
