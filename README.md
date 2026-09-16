@@ -30,13 +30,17 @@ Two policies decide, independently, whether a member is "active":
   the cancelled case.
 
 The two policies disagree on two of the four states, in opposite
-directions. A single, shared `IsActive()` boolean — the natural first cut
-almost anyone would write — cannot represent that. That's the whole bug.
+directions. On the `broken` branch, `impl/billing.go` answers the billing
+question with the access rule: a member is billed "for as long as their
+membership is live", which sounds right, reads as deliberate, and is wrong
+on exactly the two states where the policies diverge. Nothing about the
+code looks off. Its unit tests pass. That's the whole bug — the kind that
+gets written when the rule lives in someone's head instead of in a spec.
 
 ## Quickstart
 
 ```sh
-git clone <this repo>
+git clone https://github.com/yovico-ai/agda-guardrails
 cd agda-guardrails
 nix develop
 make check
@@ -52,14 +56,19 @@ ok      github.com/yovico-ai/agda-guardrails/impl
 
 ORACLE_BIN=.../build/Main go test ./harness/... -v
 === RUN   TestConformsToSpec
-    conformance_property_test.go:56: [rapid] failed after 0 tests: BillingActive("cancelled_pending_period_end") = true, spec says false
---- FAIL: TestConformsToSpec (0.01s)
+    conformance_property_test.go:84: [rapid] failed after 1 tests: BillingActive("cancelled_pending_period_end") = true, spec says false
+        To reproduce, specify -run="TestConformsToSpec" -rapid.seed=...
+        Failed test output:
+    conformance_property_test.go:85: [rapid] draw state: "cancelled_pending_period_end"
+    conformance_property_test.go:96: BillingActive("cancelled_pending_period_end") = true, spec says false
+--- FAIL: TestConformsToSpec (0.00s)
 FAIL
 ```
 
-(rapid generates randomly, so you may instead see it fail on
-`grace_period` — the other state the two policies disagree on. Either
-way, `BillingActive` is the one that's wrong.)
+(rapid draws randomly, so you may instead see it fail on `grace_period` —
+the other state the two policies disagree on — and "after 1 tests" may
+read "after 0 tests". Either way, `BillingActive` is the one that's
+wrong.)
 
 `impl/membership_test.go`'s unit tests are green. They were never wrong —
 they cover the two states anyone would think to test (`active`,
@@ -74,10 +83,25 @@ git checkout main
 make check
 ```
 
-Same commands, everything green: `impl/membership.go` on this branch has
-two separate functions, `AccessActive` and `BillingActive`, instead of
-one collapsed boolean. Diff the two branches' `impl/membership.go` to see
-the entire fix — it's a few lines.
+Same commands, everything green:
+
+```
+go test ./impl/...
+ok      github.com/yovico-ai/agda-guardrails/impl
+
+ORACLE_BIN=.../build/Main go test ./harness/... -v
+=== RUN   TestConformsToSpec
+    conformance_property_test.go:84: [rapid] OK, passed 100 tests (2.584641ms)
+--- PASS: TestConformsToSpec (0.00s)
+PASS
+ok      github.com/yovico-ai/agda-guardrails/harness
+```
+
+The entire fix is one `case` list in `impl/billing.go`:
+
+```sh
+git diff main broken -- impl/billing.go
+```
 
 ## Demonstration two, in slow motion: a spec-derived property test
 
@@ -87,6 +111,28 @@ and keeps one instance running for the whole test — the property test in
 state, what `AccessActive` and `BillingActive` should be, and compares
 that against `impl`'s own functions. The spec isn't consulted for
 documentation; it's queried, live, as the test oracle.
+
+**On the word "property".** Four states is not a search space: rapid's
+`SampledFrom` reaches all of them within its first few draws, so on this
+domain the property test is an exhaustive check wearing a property test's
+harness — which is why the failure above reports "after 1 tests", not
+after thousands. What the repo demonstrates is the shape (generate, ask
+the oracle, compare), not the search. The same `rapid.Check` against the
+same oracle does real search once the input is an event *sequence*
+instead of a state, which is what Yovico's own spec replays; this domain
+is deliberately too small to need it.
+
+**The vocabulary is checked, not asserted.** `impl.State`'s string values
+and `spec/Oracle.agda`'s parser are hand-duplicated across two languages.
+Rather than a comment promising they match, `TestMain` asks the compiled
+oracle for its own list (a `states` query) and requires set equality with
+`impl.AllStates` before any test runs. The oracle's side of that list
+isn't taken on trust either: `Oracle.agda` carries two proofs,
+`allStates-complete` (every constructor is in the list — coverage-checked,
+so a fifth state won't compile until it's listed) and `stateP-stateText`
+(parser and printer agree on every spelling). A rename on either side
+fails up front as `vocabulary drifted: spec knows [...], impl knows [...]`,
+not as an unexplained `InvalidState` in the middle of a run.
 
 This is a small, invented-domain rebuild of a real pattern already
 running inside Yovico's own product spec (`spec/OracleMain.agda` there,
@@ -101,7 +147,7 @@ four-state demo has nothing to correlate or version.
 Both `AccessPolicy.agda` and `BillingPolicy.agda` pattern-match
 `MembershipState` exhaustively — no wildcard `_` case anywhere. Add a
 fifth state without touching either policy, and Agda's coverage checker
-refuses to compile the spec at all. Try it:
+refuses to compile the spec at all. Try it (on either branch):
 
 ```sh
 git apply demo/add-paused-state.agda.patch
@@ -114,8 +160,8 @@ Incomplete pattern matching for AccessActive. Missing cases:
   AccessActive paused
 ```
 
-Revert it (`git checkout spec/Membership.agda`) and apply the Go
-equivalent instead:
+Revert it (`git apply -R demo/add-paused-state.agda.patch`) and apply the
+Go equivalent instead:
 
 ```sh
 git apply demo/add-paused-state.go.patch
@@ -123,11 +169,30 @@ go build ./...
 ```
 
 That succeeds. Nothing in Go's type system requires every `State`
-constant to be handled anywhere a `switch` mentions the type, so
-`AccessActive`/`BillingActive`'s existing `default: return false` silently
-absorbs `paused` — quietly deciding an access and billing question nobody
-actually made. Same missing decision, two different amounts of
-resistance. That gap is the entire argument, compiled.
+constant to be handled anywhere a `switch` mentions the type, so the
+existing `default: return false` in `impl/access.go` and `impl/billing.go`
+silently absorbs `paused` — quietly deciding an access and billing
+question nobody actually made. Same missing decision, two different
+amounts of resistance. That gap is the entire argument, compiled.
+
+(Add `Paused` to `impl.AllStates` as well and `make check` does catch it —
+at the vocabulary handshake, because the spec doesn't know the word. That
+is the spec catching it, not Go.)
+
+## What it costs
+
+Numbers from this repo, so the size of the demo is on the table:
+
+- The domain spec — `Membership.agda`, `AccessPolicy.agda`,
+  `BillingPolicy.agda` — is 52 lines. The wire adapter (`Oracle.agda`, 74
+  lines, about a third of it the two vocabulary proofs) and the IO
+  boundary (`Main.agda`, 42) bring the Agda side to 168. The Go harness is
+  270 lines; the implementation under test, 54.
+- `make check` from a cold build takes about 15 s on a developer machine,
+  nearly all of it Agda type-checking and GHC compiling the oracle (48
+  modules at `-O0`); the Go side runs in milliseconds. In GitHub Actions
+  on `ubuntu-latest` with `magic-nix-cache`, the `make check` step is
+  45 s.
 
 ## What this is not
 

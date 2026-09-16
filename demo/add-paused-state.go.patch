@@ -1,12 +1,12 @@
 diff --git a/impl/membership.go b/impl/membership.go
-index fd1961d..61e25fe 100644
+index 80c4071..9f6e1fc 100644
 --- a/impl/membership.go
 +++ b/impl/membership.go
-@@ -14,6 +14,7 @@ const (
+@@ -16,6 +16,7 @@ const (
  	CancelledPendingPeriodEnd State = "cancelled_pending_period_end"
  	GracePeriod               State = "grace_period"
  	Expired                   State = "expired"
 +	Paused                    State = "paused"
  )
  
- // AccessActive mirrors spec/AccessPolicy.agda: a cancellation takes effect
+ // AllStates is the generator's domain and this side of the vocabulary

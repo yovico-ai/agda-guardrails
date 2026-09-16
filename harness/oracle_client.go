@@ -10,6 +10,7 @@ package harness
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -18,7 +19,7 @@ import (
 	"sync"
 )
 
-// OracleResponse is spec/Oracle.agda's evaluate output, one per query.
+// OracleResponse is spec/Oracle.agda's answer for one state.
 type OracleResponse struct {
 	AccessActive  bool
 	BillingActive bool
@@ -100,25 +101,63 @@ func (c *Client) Close() {
 	_ = c.cmd.Wait()
 }
 
-// Query asks the oracle what both policies decide for a wire-form state
-// (impl.State's own string value — the two sides share the same literals
-// on purpose, see harness/conformance_property_test.go).
+// States asks the oracle for its own state vocabulary — every string its
+// parser accepts, in spec/Oracle.agda's own words (a list that file proves
+// complete). The harness compares this to impl.AllStates before running
+// anything else, so a rename or an added state on either side fails up
+// front as "vocabulary drifted" rather than later as an InvalidState
+// reply to a query that looked fine.
+func (c *Client) States() ([]string, error) {
+	line, err := c.roundTrip("states")
+	if err != nil {
+		return nil, err
+	}
+	var r struct {
+		States []string `json:"states"`
+	}
+	if err := json.Unmarshal([]byte(line), &r); err != nil || r.States == nil {
+		return nil, fmt.Errorf("oracle protocol: unexpected reply to states query: %q", line)
+	}
+	return r.States, nil
+}
+
+// Query asks the oracle what both policies decide for one state, given in
+// wire form (impl.State's own string value — the vocabulary States checks).
 func (c *Client) Query(state string) (OracleResponse, error) {
+	line, err := c.roundTrip(state)
+	if err != nil {
+		return OracleResponse{}, err
+	}
+	// Pointers, not bools: an {"error":"InvalidState"} reply has to fail
+	// here, not decode as a pair of confident falses.
+	var r struct {
+		AccessActive  *bool `json:"access_active"`
+		BillingActive *bool `json:"billing_active"`
+	}
+	if err := json.Unmarshal([]byte(line), &r); err != nil || r.AccessActive == nil || r.BillingActive == nil {
+		return OracleResponse{}, fmt.Errorf("oracle protocol: unexpected reply to %q: %q", state, line)
+	}
+	return OracleResponse{AccessActive: *r.AccessActive, BillingActive: *r.BillingActive}, nil
+}
+
+// roundTrip writes one line and reads one line back, serialized so two
+// callers can't interleave on the single pipe pair.
+func (c *Client) roundTrip(req string) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
-		return OracleResponse{}, fmt.Errorf("oracle client is closed")
+		return "", fmt.Errorf("oracle client is closed")
 	}
-	if _, err := fmt.Fprintln(c.stdin, state); err != nil {
-		return OracleResponse{}, fmt.Errorf("write to oracle: %w%s", err, c.stderrSuffix())
+	if _, err := fmt.Fprintln(c.stdin, req); err != nil {
+		return "", fmt.Errorf("write to oracle: %w%s", err, c.stderrSuffix())
 	}
 	if !c.stdout.Scan() {
 		if err := c.stdout.Err(); err != nil {
-			return OracleResponse{}, fmt.Errorf("read from oracle: %w%s", err, c.stderrSuffix())
+			return "", fmt.Errorf("read from oracle: %w%s", err, c.stderrSuffix())
 		}
-		return OracleResponse{}, fmt.Errorf("oracle closed its output%s", c.stderrSuffix())
+		return "", fmt.Errorf("oracle closed its output%s", c.stderrSuffix())
 	}
-	return parseResponse(c.stdout.Text())
+	return c.stdout.Text(), nil
 }
 
 // stderrSuffix appends whatever the oracle process wrote to stderr, if
@@ -129,18 +168,4 @@ func (c *Client) stderrSuffix() string {
 		return ""
 	}
 	return fmt.Sprintf(" (oracle stderr: %s)", strings.TrimSpace(c.stderr.String()))
-}
-
-// parseResponse hand-parses spec/Oracle.agda's hand-built JSON line. A
-// real JSON decoder would work too; this keeps the demo dependency-free
-// and the wire format is simple enough that a decoder would be more code,
-// not less trust.
-func parseResponse(line string) (OracleResponse, error) {
-	var r OracleResponse
-	if _, err := fmt.Sscanf(line,
-		`{"access_active":%t,"billing_active":%t}`,
-		&r.AccessActive, &r.BillingActive); err != nil {
-		return OracleResponse{}, fmt.Errorf("oracle protocol: unexpected line %q: %w", line, err)
-	}
-	return r, nil
 }

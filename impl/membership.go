@@ -4,9 +4,11 @@
 // implement, silently, the way any hand-written mirror of a spec can.
 package impl
 
-// State mirrors spec/Membership.agda's MembershipState. Four states, kept
-// in lockstep with the wire strings spec/Oracle.agda's stateP accepts —
-// see harness/oracle_client.go.
+// State mirrors spec/Membership.agda's MembershipState. The string values
+// are the wire vocabulary spec/Oracle.agda's stateP accepts. Nothing here
+// can prove the two lists match, so the harness checks it at startup
+// instead: it asks the compiled oracle for its own vocabulary and compares
+// that to AllStates (see harness/conformance_property_test.go, TestMain).
 type State string
 
 const (
@@ -16,25 +18,7 @@ const (
 	Expired                   State = "expired"
 )
 
-// AccessActive mirrors spec/AccessPolicy.agda: a cancellation takes effect
-// at the end of the paid period, not the moment it's requested.
-func AccessActive(s State) bool {
-	switch s {
-	case Active, CancelledPendingPeriodEnd:
-		return true
-	default:
-		return false
-	}
-}
-
-// BillingActive mirrors spec/BillingPolicy.agda: a member mid-retry after
-// a failed charge is still on the hook until the retry resolves, so
-// billing stays active exactly where access does not.
-func BillingActive(s State) bool {
-	switch s {
-	case Active, GracePeriod:
-		return true
-	default:
-		return false
-	}
-}
+// AllStates is the generator's domain and this side of the vocabulary
+// check. Go can't enumerate a type's constants, so this is kept by hand;
+// the oracle handshake is what keeps it honest.
+var AllStates = []State{Active, CancelledPendingPeriodEnd, GracePeriod, Expired}
