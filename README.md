@@ -194,6 +194,48 @@ Numbers from this repo, so the size of the demo is on the table:
   on `ubuntu-latest` with `magic-nix-cache`, the `make check` step is
   45 s.
 
+## Use it in your own project
+
+`skills/spec-oracle/` packages the method as an
+[Agent Skill](https://agentskills.io): a `SKILL.md` an AI coding agent
+loads when a task matches it, plus the generic plumbing (`flake.nix`,
+`Makefile`, CI workflow) and a verbatim copy of this repo's spec and
+harness as the worked example. The same folder works in Claude Code and
+Codex; only the install path differs:
+
+```sh
+git clone https://github.com/yovico-ai/agda-guardrails
+
+# Claude Code — per project, or ~/.claude/skills/ for every project
+mkdir -p your-project/.claude/skills
+cp -r agda-guardrails/skills/spec-oracle your-project/.claude/skills/
+
+# Codex — per project, or ~/.agents/skills/ for every project
+mkdir -p your-project/.agents/skills
+cp -r agda-guardrails/skills/spec-oracle your-project/.agents/skills/
+```
+
+Then, in your project: "build a spec oracle for the rules in
+REQUIREMENTS.md" (or `/spec-oracle` in Claude Code, `$spec-oracle` in
+Codex). The skill's first step is to read your requirements document,
+propose the closed vocabulary and the decision functions as a truth
+table, and hand back every cell the document doesn't decide as a
+question. Agda won't accept the spec until those cells are filled, so
+they get filled with answers rather than defaults — the spec-writing step
+is where the requirements get debugged. It then builds the layers in this
+repo's order and refuses to call itself done until it has watched the
+property test fail on a planted bug and Agda refuse a fifth state.
+
+Two honest limits. The skill can't install Agda: the bundled flake does,
+but Nix is still the entry fee. And an agent can draft the spec from your
+requirements, but if nobody reviews it, the same model wrote both the
+oracle and the code — so the skill says this out loud and stops for
+review at the truth table.
+
+The example under `skills/spec-oracle/assets/example/` is a copy of this
+repo's own files; `make check` fails if they ever drift from what CI just
+tested.
+
 ## What this is not
 
 Not the real spec. Yovico's own product-tenancy and billing rules are
@@ -204,8 +246,10 @@ for what "correct" means.
 
 Not a general-purpose library. There's no reusable harness for wiring an
 arbitrary Agda spec to an arbitrary Go (or TypeScript, or anything else)
-test suite here — just this one demo's worth of glue. If that's wanted as
-a real tool, that's a different, larger project.
+test suite here. The skill above teaches an agent to rebuild the pattern
+per project, which is deliberately not the same thing — nothing to
+version, nothing to maintain. If a library is wanted, that's a different,
+larger project.
 
 ## Requirements
 
