@@ -204,9 +204,11 @@ Numbers from this repo, so the size of the demo is on the table:
 
 `skills/spec-oracle/` packages the method as an
 [Agent Skill](https://agentskills.io): a `SKILL.md` an AI coding agent
-loads when a task matches it, plus the generic plumbing (`flake.nix`,
-`Makefile`, CI workflow) and a verbatim copy of this repo's spec and
-harness as the worked example. The same folder works in Claude Code and
+loads when a task matches it, the domain-independent plumbing ready to
+copy unchanged (`Main.agda`, `flake.nix`, `Makefile`, CI workflows), and
+skeletons for the layers that depend on your domain. It is deliberately
+neutral — nothing from this repo's membership example is in it; this repo
+is one instance of following it. The same folder works in Claude Code and
 Codex; only the install path differs:
 
 ```sh
@@ -239,10 +241,6 @@ the entry fee. And an agent can draft the spec from your requirements,
 but if nobody reviews it, the same model wrote both the oracle and the
 code — so the skill says this out loud and stops for review at the truth
 table.
-
-The example under `skills/spec-oracle/assets/example/` is a copy of this
-repo's own files; `make check` fails if they ever drift from what CI just
-tested.
 
 ## What this is not
 

@@ -5,7 +5,7 @@ license: MIT
 compatibility: Requires either Nix with flakes enabled (the bundled flake provisions Agda 2.8, agda-stdlib 2.3, GHC and Go) or Docker, using the image ghcr.io/yovico-ai/agda-guardrails built from that same flake.
 metadata:
   author: yovico-ai
-  version: "0.1"
+  version: "0.2"
   source: https://github.com/yovico-ai/agda-guardrails
 ---
 
@@ -35,9 +35,10 @@ disagrees with the person who asked for the feature.
    IO boundary (`Main.agda`) may omit it, because it needs one FFI call.
    Keep it free of logic so everything that matters is checked under
    `--safe`.
-4. **One function per question.** "Is this member active?" is not one
-   question if access and billing can disagree. Name the questions the
-   business actually asks; never share one boolean between two of them.
+4. **One function per question.** "Is this thing active?" is not one
+   question if two parts of the business can disagree about the answer.
+   Name the questions the business actually asks, one function and one
+   file each; never share one boolean between two of them.
 5. **The vocabulary is checked, not asserted.** The implementation's copy of
    the state names and the spec's parser are hand-duplicated across two
    languages. The test suite asks the oracle for its own vocabulary at
@@ -53,20 +54,23 @@ spec/
   <Domain>.agda        closed vocabulary: one data type, --safe
   <Question>.agda      one decision function per business question, --safe
   Oracle.agda          wire adapter: parse, print, evaluate, --safe
-  Main.agda            IO boundary, verbatim from assets/example/spec/
+  Main.agda            IO boundary — assets/Main.agda, unchanged
   <name>.agda-lib      library file (3 lines, step 5)
 harness/
   oracle_client.<ext>  one persistent oracle process, one line in, one out
   conformance_test.*   vocabulary handshake, then the property
 impl/                  the code under test — knows nothing about spec/
-flake.nix  Makefile  .github/workflows/ci.yml   from assets/
-                       (ci-container.yml is the CI variant with no Nix)
+  <domain>.<ext>       the state type and the list of all states
+  <question>.<ext>     one file per decision function
+flake.nix  Makefile  .github/workflows/ci.yml   assets/, unchanged
+                       (assets/ci-container.yml: the CI variant with no Nix)
 ```
 
-The worked example under `assets/example/` is a verbatim copy of a tested
-reference implementation (a four-state membership domain, two questions:
-access and billing). Read the file for the layer you are writing; adapt
-the domain, keep the shape.
+Two kinds of material ship with this skill. `assets/` holds the files
+that do not depend on your domain — copy them as they are. `references/`
+holds the layers that do, as skeletons with placeholder names (`State`,
+`c1`, `Q1`, `"q1"`): the code shape is exact and every line is there for
+a reason; only the names change.
 
 ## Procedure
 
@@ -79,20 +83,18 @@ ask. From it, extract:
   Each is a constructor. If the document uses two words for one thing,
   ask which; if it uses one word for two things, split it and ask.
 - **The questions.** Every yes/no (or small enum) decision the system makes
-  about a state: "can they use the product", "are they still billed", "may
-  this transition happen". Each is one function `State → Bool` (or `→ Enum`).
+  about a state. Each is one function `State → Bool` (or `→ Enum`).
 - **The truth table.** One row per state, one column per question.
 
 Fill in only cells the document decides. Present the table with every
 undecided cell marked `?`, like this:
 
 ```
-state                          | AccessActive | BillingActive
--------------------------------|--------------|--------------
-active                         | true         | true
-cancelled_pending_period_end   | true         | false
-grace_period                   | ?            | true
-expired                        | false        | false
+state  | Q1    | Q2
+-------|-------|------
+s1     | true  | true
+s2     | true  | ?
+s3     | ?     | false
 ```
 
 Stop here and get the `?` cells decided by the human. This is the step
@@ -103,15 +105,17 @@ is nothing to specify.
 
 ### 2. Domain modules
 
-One `data` type for the vocabulary (see `assets/example/spec/Membership.agda`),
-then one module per question (`AccessPolicy.agda`, `BillingPolicy.agda`).
-Each function matches every constructor by name. Comments say *why* a row
-is what it is — the business reason — not what the code does.
+One `data` type for the vocabulary, then one module per question — the
+first two sections of `references/oracle-adapter.md`. Each function
+matches every constructor by name. Comments say *why* a row is what it is
+— the business reason, in the requirements' own words — not what the code
+does.
 
 ### 3. Wire adapter — `Oracle.agda`
 
-Follow `assets/example/spec/Oracle.agda` exactly; only the constructor
-names and question names change. It has:
+Follow the `Oracle.agda` skeleton in `references/oracle-adapter.md`
+exactly; only constructor names, question names and JSON keys change. It
+has:
 
 - `stateP : String → Maybe State` — parser, one literal pattern per state,
   `nothing` for anything else.
@@ -130,7 +134,7 @@ fields, and a JSON library is more code than trust here.
 
 ### 4. IO boundary — `Main.agda`
 
-Copy `assets/example/spec/Main.agda` **verbatim**. It reads a line, writes
+Copy `assets/Main.agda` **unchanged**. It reads a line, writes
 `evaluate line`, forever. It contains one postulate with a `COMPILE GHC`
 pragma that sets stdout to line buffering — without it GHC block-buffers a
 pipe, the first reply never leaves the process, and the whole protocol
@@ -168,8 +172,8 @@ for running, for CI, and for machines where Nix is not an option.
 
 ### 6. Harness client (implementation language)
 
-Follow `assets/example/harness/oracle_client.go`. The shape that matters,
-in any language:
+Follow `references/harness-go.md`. The shape that matters, in any
+language:
 
 - **One process for the whole test run**, started once, queries serialized
   with a mutex. A process per query makes a thousand-case run about process
@@ -181,15 +185,14 @@ in any language:
   crash names its cause instead of surfacing as "broken pipe".
 - **Decode replies with presence checks.** In Go, pointer bools; in
   TypeScript, check `in`; in Python, `KeyError`. An `{"error":...}` reply
-  must fail the query, never decode as two confident falses.
+  must fail the query, never decode as a set of confident falses.
 - **Kill the child on close**; the serve loop is `forever`, it will not
   notice EOF.
 - Expose `States()` (the vocabulary query) and `Query(state)`.
 
 ### 7. Conformance test
 
-Follow `assets/example/harness/conformance_property_test.go` and the
-`AllStates` pattern in `assets/example/impl/membership.go`.
+Follow the second half of `references/harness-go.md`.
 
 - In the suite's setup (`TestMain` in Go; a session fixture in pytest; a
   `beforeAll` in vitest): start the oracle, call `States()`, and require
@@ -233,15 +236,8 @@ Follow `assets/example/harness/conformance_property_test.go` and the
 - [ ] Truth table reviewed by a human; no `?` cells remain, none were filled by you.
 - [ ] Every rule module is `--safe`; no `_` pattern in any domain function.
 - [ ] `Oracle.agda` has `allStates-complete` and `stateP-stateText`.
-- [ ] `Main.agda` is verbatim from the example.
+- [ ] `Main.agda` is `assets/Main.agda`, unchanged.
 - [ ] Setup does the vocabulary handshake; the property compares every question.
-- [ ] You saw the property test fail on a planted bug, and Agda refuse a fifth constructor, and reverted both.
+- [ ] You saw the property test fail on a planted bug, and Agda refuse a new constructor, and reverted both.
 - [ ] `make check` green; CI file in place.
 - [ ] README states honestly how large the search space is.
-
-## Reference
-
-`assets/example/` mirrors https://github.com/yovico-ai/agda-guardrails,
-whose `make check` refuses to pass if these copies drift from what its CI
-tested. The repo's README walks the same domain end to end, including the
-planted bug on its `broken` branch and the compile-time coverage demo.
